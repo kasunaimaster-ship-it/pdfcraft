@@ -78,6 +78,10 @@ both. The existing `query`, `count`, `matches` and rectangle semantics are uncha
 `text_extract`, comment placement and redaction keep strict all-requested-pages-must-succeed
 semantics; they never silently act on partial text.
 
+## Translation review
+
+`text_translate_review {doc, path, confirm_send: true, pages?, target?, source?, back_check?, max_chars?, min_similarity?}` translates pages with Google Cloud Translation (default target Sinhala, `si`) and writes an HTML review page to `path` with the original, the translation, the translation translated back and automatic notes on likely problems. It sends the page text to Google, so it refuses to run without `confirm_send: true`, reads its API key only from the `PDFCRAFT_GOOGLE_TRANSLATE_API_KEY` environment variable, and refuses a run above `max_chars` (default 100,000, back-translation counted). It does not change the document. See [pdfcraft-translate](../translate/README.md) for the checks and their limits.
+
 ## Shared field properties
 
 For an individual push button, `form_set_props` also edits its visible normal label:

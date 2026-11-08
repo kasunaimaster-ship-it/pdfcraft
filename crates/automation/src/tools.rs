@@ -216,6 +216,16 @@ pub fn tools() -> Vec<ToolDef> {
             .with(schema(json!({ "doc": doc(), "pages": pages("to count (default: all)"),
                 "exclude_tables": { "type": "boolean" }, "exclude_code": { "type": "boolean" }, "exclude_images": { "type": "boolean" }
             }), &["doc"])),
+        t("text_translate_review", "Translate with a review report", "Translate the text of some or all pages with Google Cloud Translation (default target Sinhala, \"si\") and write an HTML review page to path: the original, the translation, the translation translated back, and automatic notes on numbers, web addresses, text left untranslated and meaning that drifted. SENDS the page text to Google, so it needs confirm_send: true and an API key in the PDFCRAFT_GOOGLE_TRANSLATE_API_KEY environment variable (never an argument). Machine translation cannot be proven correct: the notes flag likely problems only, and an important document needs a reader of both languages. Pages without extractable text (scans) need ocr_recognize first. Refuses a run that would send more than max_chars characters (default 100000, back-translation counted) so a large file cannot run up a bill unnoticed. Copy permission is required. Does not change the document; overwrites path.")
+            .destructive()
+            .with(schema(json!({ "doc": doc(), "path": path_arg(), "pages": pages("to translate (default: all)"),
+                "confirm_send": { "type": "boolean", "description": "Must be true: the text is sent to Google." },
+                "target": { "type": "string", "description": "Target language code (default \"si\", Sinhala)." },
+                "source": { "type": "string", "description": "Source language code. Omit to let Google detect it." },
+                "back_check": { "type": "boolean", "description": "Translate the result back and compare (default true). Off halves the characters sent but cannot show meaning drift." },
+                "max_chars": { "type": "integer", "minimum": 1, "maximum": 5000000, "description": "Most characters one run may send (default 100000)." },
+                "min_similarity": { "type": "number", "minimum": 0, "maximum": 1, "description": "A back-translation less similar to the original than this is noted (default 0.45; a starting value, not calibrated)." }
+            }), &["doc", "path", "confirm_send"])),
         t("text_extract", "Extract text", "Extract the text of some or all pages, in reading order. With rect, only the text inside that rectangle on each page, as Column select takes it: one row per visual line, side-by-side pieces (table cells) separated by a tab. With format \"html\", each page also carries html, the same text as Copy with formatting puts on the clipboard (paragraphs, bold, italic, size, colour and font family), and styles_incomplete when some styles had to be left out. With rect, the html is that text in line order, not split into the column's rows and cells. The HTML of one call is capped at 32 MiB in total; pages past the cap carry empty html with styles_incomplete. html_truncated is set when that cap is reached or when a page's own copy was cut at its span or size cap.")
             .ro()
             .cmd("edit.column_select")

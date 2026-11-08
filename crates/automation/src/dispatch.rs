@@ -73,6 +73,7 @@ impl Automation {
             "comment_image_preview" => return self.comment_image_preview(&a),
             "text_extract" => self.text_extract(&a)?,
             "text_word_count" => self.text_word_count(&a)?,
+            "text_translate_review" => self.text_translate_review(&a)?,
             "text_find" => self.text_find(&a)?,
             "page_rotate" => {
                 let degrees = a.int("degrees")?;

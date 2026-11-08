@@ -34,6 +34,7 @@ mod reading;
 mod redact;
 mod signing;
 mod text_cache;
+mod translate;
 mod tools;
 
 use std::collections::{HashMap, HashSet};

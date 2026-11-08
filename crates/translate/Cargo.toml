@@ -1,0 +1,13 @@
+[package]
+name = "pdfcraft-translate"
+description = "Opt-in translation review: segmenting, protected-token checks, back-translation comparison and an HTML review report"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+ureq = "3"
