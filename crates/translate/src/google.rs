@@ -111,7 +111,7 @@ mod tests {
             TranslateError::Http(403),
             TranslateError::BadResponse("x".into()),
             TranslateError::BadKey,
-            TranslateError::MissingKey,
+            TranslateError::MissingKey(KEY_ENV),
         ] {
             assert!(!e.to_string().contains(key));
         }
