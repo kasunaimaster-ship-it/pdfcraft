@@ -10,4 +10,4 @@ workspace = true
 
 [dependencies]
 serde_json = { workspace = true }
-ureq = "3"
+ureq = { version = "3.4", default-features = false, features = ["rustls-no-provider", "_ring", "gzip", "platform-verifier"] }

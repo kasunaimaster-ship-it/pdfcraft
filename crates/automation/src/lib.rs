@@ -34,8 +34,8 @@ mod reading;
 mod redact;
 mod signing;
 mod text_cache;
-mod translate;
 mod tools;
+mod translate;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
