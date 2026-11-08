@@ -5,6 +5,8 @@
 
 use std::time::Duration;
 
+use crate::http;
+use crate::keys::check_key;
 use crate::review::{TranslateError, Translated, Translator};
 
 /// The environment variable that holds the API key.
@@ -20,20 +22,13 @@ pub struct Google {
 impl Google {
     /// A client using the key in [`KEY_ENV`].
     pub fn from_env() -> Result<Self, TranslateError> {
-        let key = std::env::var(KEY_ENV).map_err(|_| TranslateError::MissingKey)?;
+        let key = std::env::var(KEY_ENV).map_err(|_| TranslateError::MissingKey(KEY_ENV))?;
         Self::new(key.trim())
     }
 
     pub fn new(key: &str) -> Result<Self, TranslateError> {
-        if key.is_empty() {
-            return Err(TranslateError::MissingKey);
-        }
-        // Google keys are letters, digits, `-` and `_`. Anything else would change the URL.
-        if key.len() > 200 || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-            return Err(TranslateError::BadKey);
-        }
-        let config = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(60))).build();
-        Ok(Google { key: key.to_owned(), agent: config.into() })
+        check_key(key, KEY_ENV)?;
+        Ok(Google { key: key.to_owned(), agent: http::agent(Duration::from_secs(60)) })
     }
 }
 
@@ -41,12 +36,7 @@ impl Translator for Google {
     fn translate(&mut self, texts: &[String], source: Option<&str>, target: &str) -> Result<Vec<Translated>, TranslateError> {
         let payload = request_body(texts, source, target);
         let url = format!("{ENDPOINT}?key={}", self.key);
-        let mut response = self.agent.post(url.as_str()).header("Content-Type", "application/json").send(payload.as_str()).map_err(|e| match e {
-            ureq::Error::StatusCode(code) => TranslateError::Http(code),
-            _ => TranslateError::Network,
-        })?;
-        let body = response.body_mut().read_to_string().map_err(|_| TranslateError::Network)?;
-        parse_response(&body)
+        parse_response(&http::post_json(&self.agent, &url, None, &payload)?)
     }
 }
 
@@ -107,11 +97,9 @@ mod tests {
     }
 
     #[test]
-    fn keys_that_could_change_the_url_are_refused() {
-        assert_eq!(Google::new("").err(), Some(TranslateError::MissingKey));
-        for bad in ["a&b", "a b", "a/b", "a?b=c", "කේතය", "k\n"] {
-            assert_eq!(Google::new(bad).err(), Some(TranslateError::BadKey), "{bad:?}");
-        }
+    fn the_client_refuses_keys_that_could_change_the_url() {
+        assert_eq!(Google::new("").err(), Some(TranslateError::MissingKey(KEY_ENV)));
+        assert_eq!(Google::new("a&b=c").err(), Some(TranslateError::BadKey));
         assert!(Google::new("test-key_0123456789").is_ok());
     }
 

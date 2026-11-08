@@ -23,8 +23,11 @@ pub enum TranslateError {
         limit: usize,
     },
     BadLanguage(String),
-    MissingKey,
+    /// No API key; carries the name of the environment variable that should hold it.
+    MissingKey(&'static str),
     BadKey,
+    /// The model name in the environment is not usable.
+    BadModel,
     /// The service answered with this HTTP status.
     Http(u16),
     /// The service could not be reached.
@@ -38,19 +41,22 @@ impl fmt::Display for TranslateError {
             TranslateError::NoText => f.write_str("The selected pages have no text to translate. If they are scans, run OCR first."),
             TranslateError::TooLarge { chars, limit } => write!(
                 f,
-                "This would send about {chars} characters to Google, above the limit of {limit}. Choose fewer pages, turn off back_check, or raise max_chars if you accept the cost."
+                "This would send about {chars} characters to the service, above the limit of {limit}. Choose fewer pages, turn off back_check, or raise max_chars if you accept the cost."
             ),
             TranslateError::BadLanguage(c) => write!(f, "{c:?} is not a language code such as \"si\", \"en\" or \"zh-CN\"."),
-            TranslateError::MissingKey => write!(f, "No Google Cloud Translation API key. Set the {} environment variable.", crate::google::KEY_ENV),
-            TranslateError::BadKey => f.write_str("The API key has characters a Google API key does not use."),
-            TranslateError::Http(400) => f.write_str("Google rejected the request (400). Check the language codes."),
+            TranslateError::MissingKey(var) => write!(f, "No API key. Set the {var} environment variable."),
+            TranslateError::BadKey => f.write_str("The API key has characters an API key does not use."),
+            TranslateError::BadModel => f.write_str("The model name is not valid. Use a name such as gemini-3.5-flash-lite."),
+            TranslateError::Http(400) => f.write_str("The service rejected the request (400). Check the language codes, the model name and the text size."),
             TranslateError::Http(403) => f.write_str(
-                "Google refused the key (403). Check that the key is right, that the Cloud Translation API is enabled for its project, that billing is on, and that the quota is not used up.",
+                "The service refused the key (403). Check that the key is right, that the right API is enabled for its project (Cloud Translation API for Google Translate), and that billing or quota allows the request.",
             ),
-            TranslateError::Http(429) => f.write_str("Google says there were too many requests (429). Wait a minute and try again."),
-            TranslateError::Http(n) => write!(f, "Google returned HTTP status {n}."),
-            TranslateError::Network => f.write_str("Could not reach Google Cloud Translation. Check the internet connection."),
-            TranslateError::BadResponse(m) => write!(f, "Google's answer was not understood: {m}."),
+            TranslateError::Http(429) => f.write_str(
+                "The service says there were too many requests (429). Free tiers allow only a few requests a minute: wait a minute and try again, or send fewer pages.",
+            ),
+            TranslateError::Http(n) => write!(f, "The service returned HTTP status {n}."),
+            TranslateError::Network => f.write_str("Could not reach the translation service. Check the internet connection."),
+            TranslateError::BadResponse(m) => write!(f, "The service's answer was not understood: {m}."),
         }
     }
 }
@@ -130,8 +136,24 @@ pub struct Review {
     pub detected_source: Option<String>,
 }
 
-/// Translate and check `pages` (1-based page number, page text).
+/// Translate and check `pages` (1-based page number, page text). The translation back, when
+/// `opts.back_check` is on, is made by the same service.
 pub fn review(pages: &[(usize, String)], tr: &mut dyn Translator, opts: &Options) -> Result<Review, TranslateError> {
+    run(pages, tr, None, opts)
+}
+
+/// Like [`review`], but `checker`, a second service, makes the translation back. A mistake the
+/// first service makes is then less likely to repeat in the check.
+pub fn review_with_checker(
+    pages: &[(usize, String)],
+    tr: &mut dyn Translator,
+    checker: &mut dyn Translator,
+    opts: &Options,
+) -> Result<Review, TranslateError> {
+    run(pages, tr, Some(checker), opts)
+}
+
+fn run(pages: &[(usize, String)], tr: &mut dyn Translator, checker: Option<&mut dyn Translator>, opts: &Options) -> Result<Review, TranslateError> {
     for code in std::iter::once(&opts.target).chain(opts.source.iter()) {
         if !valid_lang(code) {
             return Err(TranslateError::BadLanguage(code.clone()));
@@ -149,7 +171,11 @@ pub fn review(pages: &[(usize, String)], tr: &mut dyn Translator, opts: &Options
     let texts: Vec<String> = segs.iter().map(|s| s.text.clone()).collect();
     let mut sent = 0usize;
     let forward = translate_all(tr, &texts, opts.source.as_deref(), &opts.target, opts.max_request_chars, &mut sent)?;
-    let back = if opts.back_check { back_translate(tr, &forward, opts, &mut sent)? } else { vec![None; forward.len()] };
+    let back = match (opts.back_check, checker) {
+        (false, _) => vec![None; forward.len()],
+        (true, Some(c)) => back_translate(c, &forward, opts, &mut sent)?,
+        (true, None) => back_translate(tr, &forward, opts, &mut sent)?,
+    };
     let detected_source = forward.iter().find_map(|t| t.detected.clone());
     let check_opts = CheckOptions { min_similarity: opts.min_similarity, target_script: opts.target_script };
     let rows = segs
@@ -307,6 +333,26 @@ mod tests {
     }
 
     #[test]
+    fn a_second_service_can_make_the_translation_back() {
+        let mut first = fake(round_trip);
+        let mut checker = fake(round_trip);
+        let r = review_with_checker(&pages(), &mut first, &mut checker, &Options::new("si")).unwrap();
+        assert_eq!(first.requests, vec![(None, "si".to_owned(), 3)], "the first service only translates forward");
+        assert_eq!(checker.requests, vec![(Some("si".to_owned()), "en".to_owned(), 3)], "the second one checks, into the detected language");
+        assert!(r.rows.iter().all(|row| row.flags.is_empty() && row.similarity == Some(1.0)));
+    }
+
+    #[test]
+    fn the_second_service_is_not_used_when_back_check_is_off() {
+        let mut first = fake(round_trip);
+        let mut checker = fake(round_trip);
+        let mut o = Options::new("si");
+        o.back_check = false;
+        review_with_checker(&pages(), &mut first, &mut checker, &o).unwrap();
+        assert!(checker.requests.is_empty());
+    }
+
+    #[test]
     fn a_given_source_language_is_used_both_ways() {
         let mut tr = fake(round_trip);
         let mut o = Options::new("si");
@@ -440,7 +486,9 @@ mod tests {
 
     #[test]
     fn errors_read_as_actions() {
-        assert!(TranslateError::MissingKey.to_string().contains("PDFCRAFT_GOOGLE_TRANSLATE_API_KEY"));
+        assert!(TranslateError::MissingKey("PDFCRAFT_SOME_KEY").to_string().contains("PDFCRAFT_SOME_KEY"));
+        assert!(TranslateError::Http(429).to_string().contains("wait a minute"));
+        assert!(TranslateError::BadModel.to_string().contains("model name"));
         assert!(TranslateError::Http(403).to_string().contains("billing"));
         assert!(TranslateError::NoText.to_string().contains("OCR"));
     }
