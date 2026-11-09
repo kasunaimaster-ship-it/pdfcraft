@@ -42,7 +42,7 @@ jobs:
           rustc --version
       - name: Install trunk
         run: |
-          curl -fsSL https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C "$RUNNER_TEMP"
+          curl -fsSL --retry 6 --retry-all-errors --retry-delay 10 https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C "$RUNNER_TEMP"
           "$RUNNER_TEMP/trunk" --version
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Build the web app
