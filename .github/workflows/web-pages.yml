@@ -51,7 +51,14 @@ jobs:
           CRAFT_I18N_REQUIRED: "1"
           CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
         working-directory: apps/pdfcraft-web
-        run: trunk build --release --locked
+        # trunk downloads wasm-bindgen and wasm-opt from GitHub, which sometimes answers 504: retry.
+        run: |
+          for attempt in 1 2 3; do
+            trunk build --release --locked && exit 0
+            echo "trunk build failed (attempt $attempt); retrying"
+            sleep 30
+          done
+          exit 1
       - name: Check the site
         run: |
           test -f dist/web/index.html
