@@ -19,6 +19,7 @@ pub mod gemini;
 pub mod google;
 mod http;
 pub mod keys;
+pub mod replay;
 pub mod report;
 pub mod review;
 pub mod segment;

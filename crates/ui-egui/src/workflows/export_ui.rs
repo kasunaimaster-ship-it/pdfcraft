@@ -18,6 +18,72 @@ pub enum ExportKind {
     Text,
     /// Export all images: the images pages use, as files.
     AllImages,
+    /// Translate the text and write a review page (a Google or Gemini key from the environment).
+    Translate,
+}
+
+/// The service that translates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TranslateEngine {
+    Google,
+    Gemini,
+}
+
+impl TranslateEngine {
+    fn label(self) -> &'static str {
+        match self {
+            TranslateEngine::Google => "Google Cloud Translation",
+            TranslateEngine::Gemini => "Gemini",
+        }
+    }
+
+    fn other(self) -> Self {
+        match self {
+            TranslateEngine::Google => TranslateEngine::Gemini,
+            TranslateEngine::Gemini => TranslateEngine::Google,
+        }
+    }
+
+    /// A client for this service with `key`, or with the key from the environment when `key` is empty.
+    fn client(self, key: &str) -> Result<Box<dyn pdfcraft_translate::Translator>, pdfcraft_translate::TranslateError> {
+        use pdfcraft_translate::{Gemini, Google, gemini::DEFAULT_MODEL};
+        let key = key.trim();
+        Ok(match (self, key.is_empty()) {
+            (TranslateEngine::Google, true) => Box::new(Google::from_env()?),
+            (TranslateEngine::Google, false) => Box::new(Google::new(key)?),
+            (TranslateEngine::Gemini, true) => Box::new(Gemini::from_env()?),
+            (TranslateEngine::Gemini, false) => Box::new(Gemini::new(key, DEFAULT_MODEL)?),
+        })
+    }
+}
+
+/// The Translate dialog's choices.
+#[derive(Clone, PartialEq)]
+pub struct TranslateDraft {
+    /// Target language code, such as `si`.
+    pub target: String,
+    pub engine: TranslateEngine,
+    /// Translate back and compare, to flag doubtful passages.
+    pub back_check: bool,
+    /// Let the other service make the translation back.
+    pub check_with_other: bool,
+    /// The person agreed that the text is sent to the service.
+    pub confirmed: bool,
+    /// The API key typed in the dialog. Empty means: read it from the environment (desktop). It is
+    /// used for one run, never saved, and never printed.
+    pub key: String,
+}
+
+impl std::fmt::Debug for TranslateDraft {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TranslateDraft").field("target", &self.target).field("engine", &self.engine).finish_non_exhaustive()
+    }
+}
+
+impl Default for TranslateDraft {
+    fn default() -> Self {
+        Self { target: "si".into(), engine: TranslateEngine::Google, back_check: true, check_with_other: false, confirmed: false, key: String::new() }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -27,11 +93,12 @@ pub struct ExportDraft {
     pub format: ImageFormat,
     /// Export all images ▸ skip images with fewer pixels than this on their shorter side.
     pub min_side: u32,
+    pub translate: TranslateDraft,
 }
 
 impl Default for ExportDraft {
     fn default() -> Self {
-        Self { dpi: 150.0, range: PageRange::default(), format: ImageFormat::Png, min_side: 0 }
+        Self { dpi: 150.0, range: PageRange::default(), format: ImageFormat::Png, min_side: 0, translate: TranslateDraft::default() }
     }
 }
 
@@ -46,6 +113,7 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens, kind: E
             ExportKind::Image => tl!("Export to Image"),
             ExportKind::Text => tl!("Export to Text"),
             ExportKind::AllImages => tl!("Export All Images"),
+            ExportKind::Translate => tl!("Translate for Review"),
         })
         .font(theme::semibold(18.0)),
     );
@@ -104,6 +172,41 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens, kind: E
                 .small()
                 .color(t.text_faint),
         );
+    } else if kind == ExportKind::Translate {
+        let tr = &mut d.translate;
+        ui.label(
+            egui::RichText::new(tl!(
+                "Translates the text and writes a review page (HTML) that flags numbers, links and passages worth checking. No translation is guaranteed to be correct: have a person check what matters."
+            ))
+            .small()
+            .color(t.text_faint),
+        );
+        ui.horizontal(|ui| {
+            ui.label(tl!("Translate into (language code)"));
+            ui.add(egui::TextEdit::singleline(&mut tr.target).desired_width(70.0));
+        });
+        ui.horizontal(|ui| {
+            ui.label(tl!("Service"));
+            for e in [TranslateEngine::Google, TranslateEngine::Gemini] {
+                widgets::radio_value(ui, &mut tr.engine, e, e.label());
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label(tl!("API key"));
+            ui.add(egui::TextEdit::singleline(&mut tr.key).password(true).desired_width(260.0));
+        });
+        ui.label(
+            egui::RichText::new(tl!(
+                "The key is used for this run only and is never saved. Where the app can read the environment, an empty box uses the PDFCRAFT_GOOGLE_TRANSLATE_API_KEY or PDFCRAFT_GEMINI_API_KEY variable."
+            ))
+            .small()
+            .color(t.text_faint),
+        );
+        ui.add(widgets::checkbox(&mut tr.back_check, tl!("Translate back and flag passages that differ")));
+        // The second service's key can only come from the environment, which a browser has not.
+        #[cfg(not(target_arch = "wasm32"))]
+        ui.add_enabled(tr.back_check, widgets::checkbox(&mut tr.check_with_other, tl!("Use the other service for the check")));
+        ui.add(widgets::checkbox(&mut tr.confirmed, tl!("I agree to send the text of these pages to the service")));
     } else {
         ui.label(egui::RichText::new(tl!("Plain text in reading order; pages are separated by form feeds.")).small().color(t.text_faint));
     }
@@ -113,8 +216,16 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens, kind: E
     ui.add_space(12.0);
     let (mut apply, mut cancel) = (false, false);
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        let ok = !d.range.pages(count).is_empty();
-        if ui.add_enabled_ui(ok, |ui| widgets::pill_button(ui, tl!("Export"), true)).inner.clicked() {
+        let mut ok = !d.range.pages(count).is_empty();
+        if kind == ExportKind::Translate {
+            ok = ok && d.translate.confirmed && pdfcraft_translate::valid_lang(&d.translate.target);
+            // A browser has no environment to read a key from.
+            if cfg!(target_arch = "wasm32") {
+                ok = ok && !d.translate.key.trim().is_empty();
+            }
+        }
+        let label = if kind == ExportKind::Translate { tl!("Translate") } else { tl!("Export") };
+        if ui.add_enabled_ui(ok, |ui| widgets::pill_button(ui, label, true)).inner.clicked() {
             apply = true;
         }
         if widgets::pill_button(ui, tl!("Cancel"), false).clicked() {
@@ -135,10 +246,11 @@ struct ExportTask<'a> {
     stem: String,
     status: &'a ExportStatus,
     lang: crate::i18n::Lang,
+    translate: TranslateDraft,
 }
 
 fn run(task: ExportTask<'_>, mut sink: impl FnMut(&str, Vec<u8>) -> Result<(), String>) -> String {
-    let ExportTask { src, kind, dpi, format, min_side, pages, stem, status, lang } = task;
+    let ExportTask { src, kind, dpi, format, min_side, pages, stem, status, lang, translate } = task;
     // May run on a worker thread: messages are drawn in the UI's language.
     crate::i18n::set_current(lang);
     let total = pages.len();
@@ -176,6 +288,13 @@ fn run(task: ExportTask<'_>, mut sink: impl FnMut(&str, Vec<u8>) -> Result<(), S
     match kind {
         // Handled above.
         ExportKind::AllImages => String::new(),
+        ExportKind::Translate => {
+            set(0, None);
+            match translate_pages(&mut ex, &pages, &stem, &translate, &mut sink) {
+                Ok(msg) => msg,
+                Err(e) => crate::i18n::fmt(tl!("Translation stopped: {e}"), &[("e", &e)]),
+            }
+        }
         ExportKind::Image => {
             set(0, None);
             // Pages are drawn several at once and handed over in order: the progress counts the
@@ -222,6 +341,86 @@ fn run(task: ExportTask<'_>, mut sink: impl FnMut(&str, Vec<u8>) -> Result<(), S
     }
 }
 
+/// The text of `pages` with 1-based page numbers.
+fn collect_text(ex: &mut Exporter, pages: &[usize]) -> Result<Vec<(usize, String)>, String> {
+    let mut page_text = Vec::with_capacity(pages.len());
+    for p in pages {
+        page_text.push((p.saturating_add(1), ex.text(*p)?));
+    }
+    Ok(page_text)
+}
+
+/// Translate `page_text` and check it. Gives a sentence for the status line and the review page.
+/// The text is sent only after the dialog's consent box was ticked (the callers check).
+fn translate_text(page_text: &[(usize, String)], stem: &str, d: &TranslateDraft) -> Result<(String, Vec<u8>), pdfcraft_translate::TranslateError> {
+    use pdfcraft_translate::{Meta, Options, report, review, review_with_checker};
+    let mut forward = d.engine.client(&d.key)?;
+    let mut checker = if d.back_check && d.check_with_other { Some(d.engine.other().client("")?) } else { None };
+    let mut opts = Options::new(&d.target);
+    opts.back_check = d.back_check;
+    let done = match checker.as_mut() {
+        Some(c) => review_with_checker(page_text, forward.as_mut(), c.as_mut(), &opts),
+        None => review(page_text, forward.as_mut(), &opts),
+    }?;
+    let flagged = done.rows.iter().filter(|r| !r.flags.is_empty()).count();
+    let source = done.detected_source.as_deref().unwrap_or("auto");
+    let engine = match checker {
+        Some(_) => format!("{} (checked with {})", d.engine.label(), d.engine.other().label()),
+        None => d.engine.label().to_owned(),
+    };
+    let meta = Meta { document: stem, source_lang: source, target_lang: &opts.target, engine: &engine, back_checked: d.back_check };
+    let html = report::html(&meta, &done.rows).into_bytes();
+    let msg = crate::i18n::fmt(
+        tl!("Translated {n} passages; {f} need a look in the review page"),
+        &[("n", &done.rows.len().to_string()), ("f", &flagged.to_string())],
+    );
+    Ok((msg, html))
+}
+
+/// Translate the text of `pages`, check it, and hand the review page to `sink`.
+fn translate_pages(
+    ex: &mut Exporter,
+    pages: &[usize],
+    stem: &str,
+    d: &TranslateDraft,
+    sink: &mut impl FnMut(&str, Vec<u8>) -> Result<(), String>,
+) -> Result<String, String> {
+    if !d.confirmed {
+        return Err(tl!("the text is sent to a service only after you agree").to_string());
+    }
+    let page_text = collect_text(ex, pages)?;
+    let (msg, html) = translate_text(&page_text, stem, d).map_err(|e| e.to_string())?;
+    sink(&format!("{stem}_translation_review.html"), html)?;
+    Ok(msg)
+}
+
+/// One request from the review, sent with the browser's `fetch`. Only the status or a fixed error
+/// leaves it: the reply text and the URL (which holds a Google key) are not kept in errors.
+#[cfg(target_arch = "wasm32")]
+async fn browser_fetch(p: pdfcraft_translate::replay::Pending) -> Result<String, pdfcraft_translate::TranslateError> {
+    use pdfcraft_translate::TranslateError::{Http, Network};
+    use wasm_bindgen::JsCast;
+    let window = web_sys::window().ok_or(Network)?;
+    let headers = web_sys::Headers::new().map_err(|_| Network)?;
+    headers.set("Content-Type", "application/json").map_err(|_| Network)?;
+    if let Some((name, value)) = &p.header {
+        headers.set(name, value).map_err(|_| Network)?;
+    }
+    let init = web_sys::RequestInit::new();
+    init.set_method("POST");
+    init.set_headers(&headers);
+    init.set_body(&wasm_bindgen::JsValue::from_str(&p.body));
+    init.set_mode(web_sys::RequestMode::Cors);
+    let request = web_sys::Request::new_with_str_and_init(&p.url, &init).map_err(|_| Network)?;
+    let response = wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request)).await.map_err(|_| Network)?;
+    let response: web_sys::Response = response.dyn_into().map_err(|_| Network)?;
+    let text = wasm_bindgen_futures::JsFuture::from(response.text().map_err(|_| Network)?).await.map_err(|_| Network)?;
+    if !response.ok() {
+        return Err(Http(response.status()));
+    }
+    text.as_string().ok_or(Network)
+}
+
 impl PdfCraftApp {
     /// Start exporting the active document with the dialog's settings.
     pub(crate) fn start_export(&mut self, kind: ExportKind) {
@@ -240,6 +439,7 @@ impl PdfCraftApp {
         let dpi = self.export_draft.dpi;
         let format = self.export_draft.format;
         let min_side = self.export_draft.min_side;
+        let translate = self.export_draft.translate.clone();
         let status: ExportStatus = Arc::new(Mutex::new(Some((0, pages.len(), None))));
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -251,7 +451,7 @@ impl PdfCraftApp {
                     let sink = |name: &str, bytes: Vec<u8>| {
                         crate::editing::write_atomically(&dir.join(name).to_string_lossy(), &bytes).map_err(|e| format!("{name}: {e}"))
                     };
-                    let msg = run(ExportTask { src, kind, dpi, format, min_side, pages, stem, status: &st, lang }, sink);
+                    let msg = run(ExportTask { src, kind, dpi, format, min_side, pages, stem, status: &st, lang, translate }, sink);
                     if let Ok(mut s) = st.lock() {
                         let (done, total) = s.as_ref().map_or((0, 0), |(d, t, _)| (*d, *t));
                         let done_msg = crate::i18n::fmt(tl!("{msg} to {dir}"), &[("msg", &msg), ("dir", &shown)]);
@@ -275,15 +475,56 @@ impl PdfCraftApp {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let msg =
-                run(ExportTask { src, kind, dpi, format, min_side, pages, stem, status: &status, lang: crate::i18n::current() }, |name, bytes| {
-                    crate::editing::download(name, &bytes)
-                });
+            if kind == ExportKind::Translate {
+                self.start_translate_in_browser(src, pages, stem, translate);
+                return;
+            }
+            let msg = run(
+                ExportTask { src, kind, dpi, format, min_side, pages, stem, status: &status, lang: crate::i18n::current(), translate },
+                |name, bytes| crate::editing::download(name, &bytes),
+            );
             if let Ok(mut s) = status.lock() {
                 *s = Some((0, 0, Some(msg)));
             }
             self.export_status = Some(status);
         }
+    }
+
+    /// Translate in the browser: the requests go out with `fetch` one after another while the page
+    /// stays usable, then the review page is offered as a download.
+    #[cfg(target_arch = "wasm32")]
+    fn start_translate_in_browser(&mut self, src: pdfcraft_engine::export::ExportSource, pages: Vec<usize>, stem: String, d: TranslateDraft) {
+        if !d.confirmed {
+            self.notify_tr("The text is sent to a service only after you agree");
+            return;
+        }
+        let mut ex = Exporter::from_source(src);
+        let page_text = match collect_text(&mut ex, &pages) {
+            Ok(t) => t,
+            Err(e) => {
+                self.notify(crate::i18n::fmt(tl!("Translation stopped: {e}"), &[("e", &e)]));
+                return;
+            }
+        };
+        let status: ExportStatus = Arc::new(Mutex::new(Some((0, 0, None))));
+        let st = status.clone();
+        let lang = crate::i18n::current();
+        wasm_bindgen_futures::spawn_local(async move {
+            crate::i18n::set_current(lang);
+            let result = pdfcraft_translate::replay::drive(|| translate_text(&page_text, &stem, &d), browser_fetch).await;
+            let msg = match result {
+                Ok((msg, html)) => match crate::editing::download_as(&format!("{stem}_translation_review.html"), &html, "text/html") {
+                    Ok(()) => msg,
+                    Err(e) => crate::i18n::fmt(tl!("Translation stopped: {e}"), &[("e", &e)]),
+                },
+                Err(e) => crate::i18n::fmt(tl!("Translation stopped: {e}"), &[("e", &e.to_string())]),
+            };
+            if let Ok(mut s) = st.lock() {
+                *s = Some((0, 0, Some(msg)));
+            }
+        });
+        self.export_status = Some(status);
+        self.notify_tr("Translating… this can take a minute");
     }
 
     /// Show export progress, and the result once it is done.
