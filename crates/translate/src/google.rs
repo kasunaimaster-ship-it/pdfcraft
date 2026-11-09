@@ -16,7 +16,7 @@ const ENDPOINT: &str = "https://translation.googleapis.com/language/translate/v2
 
 pub struct Google {
     key: String,
-    agent: ureq::Agent,
+    agent: http::Agent,
 }
 
 impl Google {

@@ -32,6 +32,8 @@ pub enum TranslateError {
     Http(u16),
     /// The service could not be reached.
     Network,
+    /// This build cannot send requests (the browser build has no network client).
+    Unavailable,
     BadResponse(String),
 }
 
@@ -56,6 +58,7 @@ impl fmt::Display for TranslateError {
             ),
             TranslateError::Http(n) => write!(f, "The service returned HTTP status {n}."),
             TranslateError::Network => f.write_str("Could not reach the translation service. Check the internet connection."),
+            TranslateError::Unavailable => f.write_str("Translation needs a network connection that this build does not have. Use the desktop app or pdfcraft-cli."),
             TranslateError::BadResponse(m) => write!(f, "The service's answer was not understood: {m}."),
         }
     }
@@ -486,6 +489,7 @@ mod tests {
 
     #[test]
     fn errors_read_as_actions() {
+        assert!(TranslateError::Unavailable.to_string().contains("desktop"));
         assert!(TranslateError::MissingKey("PDFCRAFT_SOME_KEY").to_string().contains("PDFCRAFT_SOME_KEY"));
         assert!(TranslateError::Http(429).to_string().contains("wait a minute"));
         assert!(TranslateError::BadModel.to_string().contains("model name"));

@@ -43,3 +43,7 @@ Free tiers allow only a few requests a minute. A run that hits the limit stops w
 - Pages with no extractable text (scans) need OCR first (`ocr_recognize`).
 - Text is joined line by line into sentences, so tables and multi-column pages may translate in a confusing order. The original column in the review shows exactly what was sent.
 - The review page is a table, not a translated PDF. Writing Sinhala into a PDF needs a Sinhala font and complex-script shaping, which this crate does not do.
+
+## Browser build
+
+The browser (wasm32) build has no sockets, so it carries no HTTP client: there, every request fails with a clear "not available in this build" error. Use the desktop app or `pdfcraft-cli`.

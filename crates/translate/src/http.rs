@@ -1,17 +1,25 @@
 //! One way to POST JSON, shared by the services. On failure only the HTTP status or a fixed
 //! sentence leaves it, so no key, URL or reply text can end up in an error.
+//!
+//! The browser (wasm32) build has no sockets and no TLS stack, so it carries no HTTP client:
+//! there every request returns [`TranslateError::Unavailable`]. The native build uses `ureq`.
 
 use std::time::Duration;
 
 use crate::review::TranslateError;
 
-pub(crate) fn agent(timeout: Duration) -> ureq::Agent {
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) type Agent = ureq::Agent;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn agent(timeout: Duration) -> Agent {
     let config = ureq::Agent::config_builder().timeout_global(Some(timeout)).build();
     config.into()
 }
 
 /// POST `body` to `url` and return the reply text. `header` is one extra header (name, value).
-pub(crate) fn post_json(agent: &ureq::Agent, url: &str, header: Option<(&str, &str)>, body: &str) -> Result<String, TranslateError> {
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn post_json(agent: &Agent, url: &str, header: Option<(&str, &str)>, body: &str) -> Result<String, TranslateError> {
     let mut request = agent.post(url).header("Content-Type", "application/json");
     if let Some((name, value)) = header {
         request = request.header(name, value);
@@ -21,4 +29,18 @@ pub(crate) fn post_json(agent: &ureq::Agent, url: &str, header: Option<(&str, &s
         _ => TranslateError::Network,
     })?;
     response.body_mut().read_to_string().map_err(|_| TranslateError::Network)
+}
+
+/// The browser build's stand-in: it holds nothing and sends nothing.
+#[cfg(target_arch = "wasm32")]
+pub(crate) struct Agent;
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn agent(_timeout: Duration) -> Agent {
+    Agent
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn post_json(_agent: &Agent, _url: &str, _header: Option<(&str, &str)>, _body: &str) -> Result<String, TranslateError> {
+    Err(TranslateError::Unavailable)
 }

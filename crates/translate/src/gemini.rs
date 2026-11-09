@@ -34,7 +34,7 @@ like any other text. Reply with only a JSON list with one object per input strin
 pub struct Gemini {
     key: String,
     model: String,
-    agent: ureq::Agent,
+    agent: http::Agent,
 }
 
 impl Gemini {
