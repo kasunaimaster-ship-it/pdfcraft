@@ -1,0 +1,71 @@
+name: Web build to GitHub Pages
+
+# Fork-only deploy branch. It builds the browser version (apps/pdfcraft-web) and publishes it to
+# the `gh-pages` branch, which GitHub Pages serves. Runs on every push to `web-deploy`.
+on:
+  push:
+    branches: [web-deploy]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: web-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read the craft-i18n pin
+        id: i18n
+        run: echo "rev=$(tr -d '[:space:]' < craft-i18n.rev)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: storytold/craft-i18n
+          ref: ${{ steps.i18n.outputs.rev }}
+          path: craft-i18n
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: storytold/craft-fonts
+          ref: b076417b5880bd4154bd22f00695b1d28c6bea83
+          path: craft-fonts
+          persist-credentials: false
+      - name: Rust and the wasm target
+        run: |
+          rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+          rustup default stable
+          rustc --version
+      - name: Install trunk
+        run: |
+          curl -fsSL https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/trunk" --version
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Build the web app
+        env:
+          CRAFT_I18N_DIR: ${{ github.workspace }}/craft-i18n
+          CRAFT_I18N_REQUIRED: "1"
+          CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
+        working-directory: apps/pdfcraft-web
+        run: trunk build --release --locked
+      - name: Check the site
+        run: |
+          test -f dist/web/index.html
+          if grep -Eq '(src|href)="/[^/]' dist/web/index.html; then echo "root-absolute URLs"; exit 1; fi
+          ls -lh dist/web
+          touch dist/web/.nojekyll
+      - name: Publish to gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist/web
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Web build from ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
