@@ -2,7 +2,8 @@
 //! sentence leaves it, so no key, URL or reply text can end up in an error.
 //!
 //! The browser (wasm32) build has no sockets and no TLS stack, so it carries no HTTP client:
-//! there every request returns [`TranslateError::Unavailable`]. The native build uses `ureq`.
+//! there a request is handed to the page through `replay`, which sends it with `fetch`. The
+//! native build uses `ureq`.
 
 use std::time::Duration;
 
@@ -41,6 +42,6 @@ pub(crate) fn agent(_timeout: Duration) -> Agent {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn post_json(_agent: &Agent, _url: &str, _header: Option<(&str, &str)>, _body: &str) -> Result<String, TranslateError> {
-    Err(TranslateError::Unavailable)
+pub(crate) fn post_json(_agent: &Agent, url: &str, header: Option<(&str, &str)>, body: &str) -> Result<String, TranslateError> {
+    crate::replay::lookup(url, header, body)
 }
