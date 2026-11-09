@@ -491,7 +491,14 @@ impl eframe::App for PdfCraftApp {
         }
         self.sync_theme(ctx);
         let native = ctx.native_pixels_per_point().unwrap_or(1.0);
-        ui_scale::sync(ctx, ui_scale::zoom(self.ui_scale, self.system_text_scale, native), &mut self.ui_scale_applied);
+        let mut zoom = ui_scale::zoom(self.ui_scale, self.system_text_scale, native);
+        // In a browser on a phone the window is far narrower than the layout; draw it smaller so it
+        // fits, unless the person picked a size. The width is measured at zoom 1 so the result is
+        // stable whatever zoom is applied now. Desktop windows are left alone.
+        if cfg!(target_arch = "wasm32") && self.ui_scale.is_none() {
+            zoom *= ui_scale::fit_narrow(ctx.input(|i| i.viewport_rect().width()) * ctx.zoom_factor());
+        }
+        ui_scale::sync(ctx, zoom, &mut self.ui_scale_applied);
         // Remember user work even if its tab is subsequently closed or Home is selected.
         self.startup_superseded |= !self.views.is_empty() || self.combine_showing() || self.dialog.is_some() || self.password_prompt.is_some();
         // Also done in `raw_input_hook`, before input; here for hosts that don't call the hook.

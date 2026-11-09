@@ -36,6 +36,16 @@ pub fn drawn(preference: Option<f32>, system: f32, native: f32) -> f32 {
     usable(native) * zoom(preference, system, native)
 }
 
+/// The layout is designed for windows at least this wide (in points at zoom 1). A narrower one, such
+/// as a phone's, is drawn smaller instead, so the toolbar, tool list and dialogs keep their shape.
+pub const MIN_LAYOUT_WIDTH: f32 = 640.0;
+
+/// The factor that fits a window `width` points wide (measured at zoom 1) to [`MIN_LAYOUT_WIDTH`]:
+/// 1.0 when it is wide enough or the width is unknown, never below [`MIN`].
+pub fn fit_narrow(width: f32) -> f32 {
+    if width.is_finite() && width > 0.0 && width < MIN_LAYOUT_WIDTH { (width / MIN_LAYOUT_WIDTH).max(MIN) } else { 1.0 }
+}
+
 /// The display's scale, or 1.0 when egui doesn't know it (or reports nonsense).
 fn usable(native: f32) -> f32 {
     if native.is_finite() && native > 0.0 { native } else { 1.0 }
@@ -81,6 +91,18 @@ mod tests {
         assert_eq!(drawn(None, 1.25, 2.0), 2.5, "Auto keeps the display's scale");
         for system in [f32::NAN, f32::INFINITY, -1.0, 0.0, 0.1, 40.0] {
             assert_eq!(zoom(None, system, 1.0), 1.0, "{system}");
+        }
+    }
+
+    #[test]
+    fn a_narrow_window_is_drawn_smaller_and_a_wide_one_is_not() {
+        assert_eq!(fit_narrow(640.0), 1.0);
+        assert_eq!(fit_narrow(1280.0), 1.0);
+        assert_eq!(fit_narrow(320.0), 0.5);
+        assert!((fit_narrow(412.0) - 0.64375).abs() < 1e-6, "a phone's width");
+        assert_eq!(fit_narrow(10.0), MIN, "never below the smallest size");
+        for width in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.0, -5.0] {
+            assert_eq!(fit_narrow(width), 1.0, "{width}");
         }
     }
 

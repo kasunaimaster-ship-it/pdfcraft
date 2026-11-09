@@ -4749,6 +4749,7 @@ dependencies = [
  "pdfcraft-ocr",
  "pdfcraft-platform",
  "pdfcraft-render",
+ "pdfcraft-translate",
  "pdfcraft-xfa",
  "plist",
  "png 0.18.1",
