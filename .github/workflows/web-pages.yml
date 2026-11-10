@@ -2,6 +2,7 @@ name: Web build to GitHub Pages
 
 # Fork-only deploy branch. It builds the browser version (apps/pdfcraft-web) and publishes it to
 # the `gh-pages` branch, which GitHub Pages serves. Runs on every push to `web-deploy`.
+# (Trigger check: this line was touched once.)
 on:
   push:
     branches: [web-deploy]
