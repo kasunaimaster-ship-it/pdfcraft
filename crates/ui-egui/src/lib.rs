@@ -42,6 +42,7 @@ pub use combine_ui::{Columns as CombineColumns, CombineView, Lock as CombineLock
 mod commands;
 pub mod control;
 mod menus;
+mod mobile;
 /// Header & footer / watermark / background dialog types (tests and automation).
 pub mod marks {
     pub use crate::marks_ui::{MarksDraft, PageRange, Subset};

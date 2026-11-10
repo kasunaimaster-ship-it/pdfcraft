@@ -720,13 +720,21 @@ impl eframe::App for PdfCraftApp {
             }
             return;
         }
-        chrome::tab_strip(self, ui);
-        chrome::mode_bar(self, ui);
+        let phone = mobile::active(&ctx);
+        if phone {
+            mobile::top_bar(self, ui);
+            mobile::bottom_bar(self, ui);
+        } else {
+            chrome::tab_strip(self, ui);
+            chrome::mode_bar(self, ui);
+        }
         // Whichever way another tab came to the front, it shows instead of the expanded view.
         if self.all_tools_full && self.all_tools_tab != self.shown_tab() {
             self.all_tools_full = false;
         }
-        side_panels::show(self, ui);
+        if !phone {
+            side_panels::show(self, ui);
+        }
         let t = theme::Tokens::get(&ctx);
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.pasteboard)).show(ui, |ui| {
             if self.mode == Mode::AllTools && self.all_tools_full {
