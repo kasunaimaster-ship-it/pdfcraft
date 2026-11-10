@@ -399,7 +399,7 @@ fn translate_pages(
 /// leaves it: the reply text and the URL (which holds a Google key) are not kept in errors.
 #[cfg(target_arch = "wasm32")]
 async fn browser_fetch(p: pdfcraft_translate::replay::Pending) -> Result<String, pdfcraft_translate::TranslateError> {
-    use pdfcraft_translate::TranslateError::{Http, Network};
+    use pdfcraft_translate::TranslateError::Network;
     use wasm_bindgen::JsCast;
     let window = web_sys::window().ok_or(Network)?;
     let headers = web_sys::Headers::new().map_err(|_| Network)?;
@@ -417,7 +417,7 @@ async fn browser_fetch(p: pdfcraft_translate::replay::Pending) -> Result<String,
     let response: web_sys::Response = response.dyn_into().map_err(|_| Network)?;
     let text = wasm_bindgen_futures::JsFuture::from(response.text().map_err(|_| Network)?).await.map_err(|_| Network)?;
     if !response.ok() {
-        return Err(Http(response.status()));
+        return Err(pdfcraft_translate::reason::rejected(response.status(), &text.as_string().unwrap_or_default()));
     }
     text.as_string().ok_or(Network)
 }

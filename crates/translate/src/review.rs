@@ -37,6 +37,11 @@ pub enum TranslateError {
     BadModel,
     /// The service answered with this HTTP status.
     Http(u16),
+    /// The service refused the request and said why (its own short sentence, never the request).
+    Rejected {
+        status: u16,
+        reason: String,
+    },
     /// The service could not be reached.
     Network,
     /// The browser has not sent a request yet; the caller sends it and runs again (`replay`).
@@ -60,6 +65,7 @@ impl fmt::Display for TranslateError {
                 write!(f, "The API key has a character an API key does not use: {shown} at number {position}. Paste only the key itself (letters, digits, - _ and .), copied with the copy button, and not a client ID, an e-mail or a link.")
             }
             TranslateError::BadModel => f.write_str("The model name is not valid. Use a name such as gemini-3.5-flash-lite."),
+            TranslateError::Rejected { status, reason } => write!(f, "The service rejected the request ({status}): {reason}"),
             TranslateError::Http(400) => f.write_str("The service rejected the request (400). Check the language codes, the model name and the text size."),
             TranslateError::Http(403) => f.write_str(
                 "The service refused the key (403). Check that the key is right, that the right API is enabled for its project (Cloud Translation API for Google Translate), and that billing or quota allows the request.",
