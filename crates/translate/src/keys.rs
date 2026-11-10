@@ -14,6 +14,19 @@ pub(crate) fn check_key(key: &str, var: &'static str) -> Result<(), TranslateErr
     Ok(())
 }
 
+/// A key as pasted, without what a phone or a web page tends to add around it: spaces, line breaks,
+/// zero-width characters and quotation marks. The result still goes through [`check_key`], so this
+/// only removes harmless clutter; it cannot make an unsafe value safe.
+pub fn tidy_key(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| {
+            !c.is_whitespace()
+                && !c.is_control()
+                && !matches!(c, '"' | '\'' | '`' | '\u{200b}'..='\u{200f}' | '\u{2018}'..='\u{201f}' | '\u{2060}' | '\u{feff}')
+        })
+        .collect()
+}
+
 /// Whether `model` can be put in a URL path as a model name (`gemini-3.5-flash-lite`).
 pub fn valid_model(model: &str) -> bool {
     (1..=60).contains(&model.len())
@@ -42,6 +55,18 @@ mod tests {
         }
         assert_eq!(check_key(&"a".repeat(201), "V"), Err(TranslateError::BadKey));
         assert_eq!(check_key("test-key_0123456789", "V"), Ok(()));
+    }
+
+    #[test]
+    fn a_pasted_key_loses_spaces_breaks_and_quotes_but_nothing_else() {
+        assert_eq!(tidy_key("  AIza-Key_1 \n"), "AIza-Key_1");
+        assert_eq!(tidy_key("\u{201c}AIza-Key_1\u{201d}"), "AIza-Key_1");
+        assert_eq!(tidy_key("\"AIza\u{200b}-Key\u{feff}_1\""), "AIza-Key_1");
+        assert_eq!(tidy_key("AIza Key_1"), "AIzaKey_1", "a space inside a paste is clutter too");
+        // What is left is still checked: a symbol that changes a URL survives and is refused.
+        assert_eq!(check_key(&tidy_key("a&b=c"), "V"), Err(TranslateError::BadKey));
+        assert_eq!(check_key(&tidy_key("a/b"), "V"), Err(TranslateError::BadKey));
+        assert_eq!(check_key(&tidy_key(" \n "), "V"), Err(TranslateError::MissingKey("V")));
     }
 
     #[test]
