@@ -25,7 +25,14 @@ pub enum TranslateError {
     BadLanguage(String),
     /// No API key; carries the name of the environment variable that should hold it.
     MissingKey(&'static str),
+    /// The key is longer than any real key.
     BadKey,
+    /// The key has a character a key never has: its number (from 1) and the character itself. That
+    /// character is by definition not a secret part of a key, so it is safe to show.
+    BadKeyChar {
+        position: usize,
+        found: char,
+    },
     /// The model name in the environment is not usable.
     BadModel,
     /// The service answered with this HTTP status.
@@ -47,7 +54,11 @@ impl fmt::Display for TranslateError {
             ),
             TranslateError::BadLanguage(c) => write!(f, "{c:?} is not a language code such as \"si\", \"en\" or \"zh-CN\"."),
             TranslateError::MissingKey(var) => write!(f, "No API key. Set the {var} environment variable."),
-            TranslateError::BadKey => f.write_str("The API key has characters an API key does not use. Paste only the key itself (letters, digits, - and _): copy it again with the copy button, and not a client ID, an e-mail or a link."),
+            TranslateError::BadKey => f.write_str("The API key is longer than any real key. Paste only the key itself, copied with the copy button, and not a client ID, an e-mail or a link."),
+            TranslateError::BadKeyChar { position, found } => {
+                let shown = if found.is_ascii_graphic() { format!("'{found}'") } else { format!("U+{:04X}", u32::from(*found)) };
+                write!(f, "The API key has a character an API key does not use: {shown} at number {position}. Paste only the key itself (letters, digits, - _ and .), copied with the copy button, and not a client ID, an e-mail or a link.")
+            }
             TranslateError::BadModel => f.write_str("The model name is not valid. Use a name such as gemini-3.5-flash-lite."),
             TranslateError::Http(400) => f.write_str("The service rejected the request (400). Check the language codes, the model name and the text size."),
             TranslateError::Http(403) => f.write_str(

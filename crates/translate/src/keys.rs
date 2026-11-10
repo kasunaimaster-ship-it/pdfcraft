@@ -2,13 +2,16 @@
 
 use crate::review::TranslateError;
 
-/// An API key is letters, digits, `-` and `_`. Anything else could change the URL or header it is
+/// An API key is letters, digits, `-`, `_` and `.` (newer Google keys start `AQ.`). Anything else could change the URL or header it is
 /// put in, so it is refused. `var` names the environment variable, for the error.
 pub(crate) fn check_key(key: &str, var: &'static str) -> Result<(), TranslateError> {
     if key.is_empty() {
         return Err(TranslateError::MissingKey(var));
     }
-    if key.len() > 200 || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if let Some((i, found)) = key.chars().enumerate().find(|(_, c)| !(c.is_ascii_alphanumeric() || matches!(*c, '-' | '_' | '.'))) {
+        return Err(TranslateError::BadKeyChar { position: i.saturating_add(1), found });
+    }
+    if key.len() > 200 {
         return Err(TranslateError::BadKey);
     }
     Ok(())
@@ -51,8 +54,10 @@ mod tests {
     fn keys_that_could_change_a_url_or_header_are_refused() {
         assert_eq!(check_key("", "V"), Err(TranslateError::MissingKey("V")));
         for bad in ["a&b", "a b", "a/b", "a?b=c", "කේතය", "k\n", "k\r\nHost: x"] {
-            assert_eq!(check_key(bad, "V"), Err(TranslateError::BadKey), "{bad:?}");
+            assert!(matches!(check_key(bad, "V"), Err(TranslateError::BadKeyChar { .. })), "{bad:?}");
         }
+        assert_eq!(check_key("ab:c", "V"), Err(TranslateError::BadKeyChar { position: 3, found: ':' }));
+        assert_eq!(check_key("AQ.Ab8_x-y", "V"), Ok(()));
         assert_eq!(check_key(&"a".repeat(201), "V"), Err(TranslateError::BadKey));
         assert_eq!(check_key("test-key_0123456789", "V"), Ok(()));
     }
@@ -64,8 +69,8 @@ mod tests {
         assert_eq!(tidy_key("\"AIza\u{200b}-Key\u{feff}_1\""), "AIza-Key_1");
         assert_eq!(tidy_key("AIza Key_1"), "AIzaKey_1", "a space inside a paste is clutter too");
         // What is left is still checked: a symbol that changes a URL survives and is refused.
-        assert_eq!(check_key(&tidy_key("a&b=c"), "V"), Err(TranslateError::BadKey));
-        assert_eq!(check_key(&tidy_key("a/b"), "V"), Err(TranslateError::BadKey));
+        assert_eq!(check_key(&tidy_key("a&b=c"), "V"), Err(TranslateError::BadKeyChar { position: 2, found: '&' }));
+        assert_eq!(check_key(&tidy_key("a/b"), "V"), Err(TranslateError::BadKeyChar { position: 2, found: '/' }));
         assert_eq!(check_key(&tidy_key(" \n "), "V"), Err(TranslateError::MissingKey("V")));
     }
 

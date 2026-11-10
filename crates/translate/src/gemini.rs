@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn the_client_checks_the_key_and_the_model() {
         assert_eq!(Gemini::new("", DEFAULT_MODEL).err(), Some(TranslateError::MissingKey(KEY_ENV)));
-        assert_eq!(Gemini::new("a b", DEFAULT_MODEL).err(), Some(TranslateError::BadKey));
+        assert!(matches!(Gemini::new("a b", DEFAULT_MODEL).err(), Some(TranslateError::BadKeyChar { .. })));
         assert_eq!(Gemini::new("test-key_01", "a/b").err(), Some(TranslateError::BadModel));
         let g = Gemini::new("test-key_01", DEFAULT_MODEL).unwrap();
         assert_eq!(g.model(), DEFAULT_MODEL);
@@ -211,6 +211,7 @@ mod tests {
             TranslateError::Http(403),
             TranslateError::BadResponse("x".into()),
             TranslateError::BadKey,
+            TranslateError::BadKeyChar { position: 3, found: '&' },
             TranslateError::MissingKey(KEY_ENV),
         ] {
             assert!(!e.to_string().contains(key));
