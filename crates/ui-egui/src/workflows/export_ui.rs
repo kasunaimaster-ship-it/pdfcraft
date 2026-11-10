@@ -83,7 +83,7 @@ impl std::fmt::Debug for TranslateDraft {
 
 impl Default for TranslateDraft {
     fn default() -> Self {
-        Self { target: "si".into(), engine: TranslateEngine::Google, back_check: true, check_with_other: false, confirmed: false, key: String::new() }
+        Self { target: "si".into(), engine: TranslateEngine::Gemini, back_check: true, check_with_other: false, confirmed: false, key: String::new() }
     }
 }
 
