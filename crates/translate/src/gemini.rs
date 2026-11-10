@@ -21,7 +21,7 @@ pub const MODEL_ENV: &str = "PDFCRAFT_GEMINI_MODEL";
 /// and cheapest of its stable 3.5 models. A larger model may translate Sinhala better.
 pub const DEFAULT_MODEL: &str = "gemini-3.5-flash-lite";
 
-/// Tried in turn, after the chosen model, when the service says a model does not exist (404).
+/// Tried in turn, after the chosen model, when the service says a model does not exist (404) or is overloaded (503).
 const FALLBACK_MODELS: [&str; 3] = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-flash-lite-latest"];
 
 const BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -66,7 +66,7 @@ impl Translator for Gemini {
     fn translate(&mut self, texts: &[String], source: Option<&str>, target: &str) -> Result<Vec<Translated>, TranslateError> {
         let payload = request_body(texts, source, target);
         let mut missing = None;
-        // The chosen model goes first; the others only when the service does not know it.
+        // The chosen model goes first; the others only when the service does not know it or is overloaded.
         let order: Vec<String> = std::iter::once(self.model.as_str())
             .chain(FALLBACK_MODELS)
             .enumerate()
@@ -88,8 +88,9 @@ impl Translator for Gemini {
     }
 }
 
+/// A model that does not exist (404) or is overloaded right now (503): another model may answer.
 fn is_unknown_model(e: &TranslateError) -> bool {
-    matches!(e, TranslateError::Http(404) | TranslateError::Rejected { status: 404, .. })
+    matches!(e, TranslateError::Http(404 | 503) | TranslateError::Rejected { status: 404 | 503, .. })
 }
 
 fn request_body(texts: &[String], source: Option<&str>, target: &str) -> String {
@@ -246,6 +247,7 @@ mod tests {
     fn only_a_missing_model_moves_on_to_the_next_one() {
         assert!(is_unknown_model(&TranslateError::Http(404)));
         assert!(is_unknown_model(&TranslateError::Rejected { status: 404, reason: "models/x is not found".into() }));
+        assert!(is_unknown_model(&TranslateError::Rejected { status: 503, reason: "This model is currently experiencing high demand".into() }));
         assert!(!is_unknown_model(&TranslateError::Http(403)));
         assert!(!is_unknown_model(&TranslateError::Rejected { status: 400, reason: "API key not valid".into() }));
     }
