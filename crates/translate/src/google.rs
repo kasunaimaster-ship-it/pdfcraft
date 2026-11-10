@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn the_client_refuses_keys_that_could_change_the_url() {
         assert_eq!(Google::new("").err(), Some(TranslateError::MissingKey(KEY_ENV)));
-        assert_eq!(Google::new("a&b=c").err(), Some(TranslateError::BadKey));
+        assert!(matches!(Google::new("a&b=c").err(), Some(TranslateError::BadKeyChar { .. })));
         assert!(Google::new("test-key_0123456789").is_ok());
     }
 
@@ -111,6 +111,7 @@ mod tests {
             TranslateError::Http(403),
             TranslateError::BadResponse("x".into()),
             TranslateError::BadKey,
+            TranslateError::BadKeyChar { position: 3, found: '&' },
             TranslateError::MissingKey(KEY_ENV),
         ] {
             assert!(!e.to_string().contains(key));
