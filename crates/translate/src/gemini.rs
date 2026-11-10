@@ -21,6 +21,9 @@ pub const MODEL_ENV: &str = "PDFCRAFT_GEMINI_MODEL";
 /// and cheapest of its stable 3.5 models. A larger model may translate Sinhala better.
 pub const DEFAULT_MODEL: &str = "gemini-3.5-flash-lite";
 
+/// Tried in turn, after the chosen model, when the service says a model does not exist (404).
+const FALLBACK_MODELS: [&str; 3] = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-flash-lite-latest"];
+
 const BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 
 const SYSTEM: &str = "You are a careful translator. The user message is JSON with target_language (a BCP-47 code), \
@@ -62,10 +65,31 @@ impl Gemini {
 impl Translator for Gemini {
     fn translate(&mut self, texts: &[String], source: Option<&str>, target: &str) -> Result<Vec<Translated>, TranslateError> {
         let payload = request_body(texts, source, target);
-        let url = format!("{BASE}/{}:generateContent", self.model);
-        let reply = http::post_json(&self.agent, &url, Some(("x-goog-api-key", self.key.as_str())), &payload)?;
-        parse_response(&reply, texts.len(), source.is_none())
+        let mut missing = None;
+        // The chosen model goes first; the others only when the service does not know it.
+        let order: Vec<String> = std::iter::once(self.model.as_str())
+            .chain(FALLBACK_MODELS)
+            .enumerate()
+            .filter(|(i, m)| *i == 0 || *m != self.model)
+            .map(|(_, m)| m.to_owned())
+            .collect();
+        for model in order {
+            let url = format!("{BASE}/{model}:generateContent");
+            match http::post_json(&self.agent, &url, Some(("x-goog-api-key", self.key.as_str())), &payload) {
+                Ok(reply) => {
+                    self.model = model;
+                    return parse_response(&reply, texts.len(), source.is_none());
+                }
+                Err(e) if is_unknown_model(&e) => missing = Some(e),
+                Err(e) => return Err(e),
+            }
+        }
+        Err(missing.unwrap_or(TranslateError::Network))
     }
+}
+
+fn is_unknown_model(e: &TranslateError) -> bool {
+    matches!(e, TranslateError::Http(404) | TranslateError::Rejected { status: 404, .. })
 }
 
 fn request_body(texts: &[String], source: Option<&str>, target: &str) -> String {
@@ -216,5 +240,13 @@ mod tests {
         ] {
             assert!(!e.to_string().contains(key));
         }
+    }
+
+    #[test]
+    fn only_a_missing_model_moves_on_to_the_next_one() {
+        assert!(is_unknown_model(&TranslateError::Http(404)));
+        assert!(is_unknown_model(&TranslateError::Rejected { status: 404, reason: "models/x is not found".into() }));
+        assert!(!is_unknown_model(&TranslateError::Http(403)));
+        assert!(!is_unknown_model(&TranslateError::Rejected { status: 400, reason: "API key not valid".into() }));
     }
 }
