@@ -5,7 +5,7 @@ name: Web build to GitHub Pages
 # (Trigger check: this line was touched once.)
 on:
   push:
-    branches: [web-deploy]
+    branches: ['web-deploy*']
 
 permissions:
   contents: write
