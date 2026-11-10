@@ -47,7 +47,7 @@ impl fmt::Display for TranslateError {
             ),
             TranslateError::BadLanguage(c) => write!(f, "{c:?} is not a language code such as \"si\", \"en\" or \"zh-CN\"."),
             TranslateError::MissingKey(var) => write!(f, "No API key. Set the {var} environment variable."),
-            TranslateError::BadKey => f.write_str("The API key has characters an API key does not use."),
+            TranslateError::BadKey => f.write_str("The API key has characters an API key does not use. Paste only the key itself (letters, digits, - and _): copy it again with the copy button, and not a client ID, an e-mail or a link."),
             TranslateError::BadModel => f.write_str("The model name is not valid. Use a name such as gemini-3.5-flash-lite."),
             TranslateError::Http(400) => f.write_str("The service rejected the request (400). Check the language codes, the model name and the text size."),
             TranslateError::Http(403) => f.write_str(

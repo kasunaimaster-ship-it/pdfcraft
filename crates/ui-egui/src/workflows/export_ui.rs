@@ -47,7 +47,8 @@ impl TranslateEngine {
     /// A client for this service with `key`, or with the key from the environment when `key` is empty.
     fn client(self, key: &str) -> Result<Box<dyn pdfcraft_translate::Translator>, pdfcraft_translate::TranslateError> {
         use pdfcraft_translate::{Gemini, Google, gemini::DEFAULT_MODEL};
-        let key = key.trim();
+        let key = pdfcraft_translate::keys::tidy_key(key);
+        let key = key.as_str();
         Ok(match (self, key.is_empty()) {
             (TranslateEngine::Google, true) => Box::new(Google::from_env()?),
             (TranslateEngine::Google, false) => Box::new(Google::new(key)?),
