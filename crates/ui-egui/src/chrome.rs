@@ -523,7 +523,9 @@ pub fn mode_bar(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                         }
                     });
                     ui.add_space(8.0);
-                    if widgets::search_box(ui, tl!("Find tools and commands"), 260.0).clicked() {
+                    // The room left of the buttons, so the box never lies over the tabs on a narrow window.
+                    let search_width = 260.0_f32.min((ui.available_width() - 12.0).max(120.0));
+                    if widgets::search_box(ui, tl!("Find tools and commands"), search_width).clicked() {
                         app.palette_open = true;
                     }
                 });

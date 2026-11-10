@@ -147,6 +147,33 @@ pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                         if theme::hand(resp).clicked() {
                             app.open_dialog();
                         }
+                        // Translate sits under Export; this puts it where a first-time visitor looks.
+                        let (rect, resp) = ui.allocate_exact_size(vec2(170.0, 104.0), Sense::click());
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Translate a PDF")));
+                        let press = theme::Press::track(ui, &resp);
+                        card_lift(ui, &t, rect, press);
+                        ui.painter().rect(
+                            rect,
+                            CornerRadius::same(10),
+                            press.fill(t.pasteboard, t.hover, t.pressed),
+                            Stroke::new(1.0, t.divider),
+                            egui::StrokeKind::Inside,
+                        );
+                        let body = rect.translate(press.offset());
+                        icons::paint(ui, Rect::from_center_size(body.center() - vec2(0.0, 16.0), vec2(28.0, 28.0)), "languages", 26.0, t.icon);
+                        ui.painter().text(
+                            body.center() + vec2(0.0, 22.0),
+                            Align2::CENTER_CENTER,
+                            tl!("Translate a PDF"),
+                            theme::semibold(13.0),
+                            t.text,
+                        );
+                        if theme::hand(resp).clicked() {
+                            // With no document open the command refuses (and says so): ask for a file instead.
+                            if !app.execute("export.translate") {
+                                app.open_dialog();
+                            }
+                        }
                     });
                 });
 
