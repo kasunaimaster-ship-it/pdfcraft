@@ -76,7 +76,7 @@ fn request_body(texts: &[String], source: Option<&str>, target: &str) -> String 
     serde_json::json!({
         "systemInstruction": { "parts": [{ "text": SYSTEM }] },
         "contents": [{ "role": "user", "parts": [{ "text": input.to_string() }] }],
-        "generationConfig": { "responseMimeType": "application/json", "temperature": 0 }
+        "generationConfig": { "responseMimeType": "application/json" }
     })
     .to_string()
 }
