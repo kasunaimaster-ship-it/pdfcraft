@@ -63,6 +63,22 @@ tr.flagged td { background: var(--flag); }
 tr.flagged td.pos { border-left: 4px solid var(--flag-line); }
 ul.checks { margin: 0; padding-left: 18px; }
 .ok { color: var(--muted); }
+.doc { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 8px 20px 20px; margin: 16px 0 28px; font-family: "Noto Sans Sinhala", "Iskoola Pota", "Nirmala UI", system-ui, sans-serif; font-size: 16px; line-height: 1.7; }
+.doc h2 { margin: 12px 0 4px; font-size: 1.25rem; }
+.doc h3 { margin: 22px 0 6px; font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.doc p.seg { margin: 0 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.doc p.seg.flagged { background: var(--flag); }
+.howto { padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
+@media print {
+  body { background: #fff; color: #000; font-size: 12pt; }
+  main { max-width: none; padding: 0; }
+  .screen, .review { display: none !important; }
+  .doc { border: 0; padding: 0; margin: 0; background: none; }
+  .doc h3 { break-after: avoid; }
+  .doc section + section { break-before: page; }
+  .doc p.seg.flagged { background: none; }
+  .doc p.seg { break-inside: avoid; }
+}
 "#;
 
 /// The review page for `rows`.
@@ -72,24 +88,26 @@ pub fn html(meta: &Meta, rows: &[Row]) -> String {
     s.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
     s.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Translation review</title>\n");
     let _ = write!(s, "<style>{STYLE}</style>\n</head>\n<body>\n<main>\n");
-    let _ = writeln!(s, "<h1>Translation review</h1>");
+    let _ = writeln!(s, "<h1 class=\"screen\">Translation review</h1>");
     let _ = writeln!(
         s,
-        "<p class=\"meta\">{} · {} to {} · {}</p>",
+        "<p class=\"meta screen\">{} · {} to {} · {}</p>",
         escape_html(meta.document),
         escape_html(meta.source_lang),
         escape_html(meta.target_lang),
         escape_html(meta.engine)
     );
     s.push_str(
-        "<p class=\"note\">This is a machine translation. The automatic checks find some problems (numbers, addresses, text left \
+        "<p class=\"note screen\">This is a machine translation. The automatic checks find some problems (numbers, addresses, text left \
          untranslated, a meaning that drifts) but cannot show that a translation is right. A row without a note has not been \
          verified. Have someone who reads both languages check anything important.</p>\n",
     );
     if !meta.back_checked {
-        s.push_str("<p class=\"note\">Back-translation was off, so meaning drift was not checked.</p>\n");
+        s.push_str("<p class=\"note screen\">Back-translation was off, so meaning drift was not checked.</p>\n");
     }
-    let _ = writeln!(s, "<p class=\"summary\">{} segments, {} with notes to check.</p>", rows.len(), flagged);
+    let _ = writeln!(s, "<p class=\"summary screen\">{} segments, {} with notes to check.</p>", rows.len(), flagged);
+    document(&mut s, meta, rows);
+    s.push_str("<section class=\"review\">\n<h2>Review table</h2>\n");
     s.push_str("<div class=\"wrap\"><table>\n<thead><tr><th>Page</th><th>Original</th><th>Translation</th>");
     if meta.back_checked {
         s.push_str("<th>Translated back</th>");
@@ -98,8 +116,36 @@ pub fn html(meta: &Meta, rows: &[Row]) -> String {
     for r in rows {
         row(&mut s, meta, r);
     }
-    s.push_str("</tbody>\n</table></div>\n</main>\n</body>\n</html>\n");
+    s.push_str("</tbody>\n</table></div>\n</section>\n</main>\n</body>\n</html>\n");
     s
+}
+
+/// The translation alone, page by page. When the page is printed only this is printed, so the
+/// browser's "Save as PDF" makes a PDF of the translation; the table and the notes stay on screen.
+fn document(s: &mut String, meta: &Meta, rows: &[Row]) {
+    let _ = writeln!(s, "<div class=\"doc\" lang=\"{}\">", escape_html(meta.target_lang));
+    let _ = writeln!(s, "<h2>{}</h2>", escape_html(meta.document));
+    s.push_str(
+        "<p class=\"howto screen\">To save this translation as a PDF: open the browser menu, choose Print (or Share, then Print), \
+         and pick Save as PDF as the printer. Only the translation is printed. Yellow paragraphs have automatic notes in the \
+         table below.</p>\n",
+    );
+    let mut page = None;
+    for r in rows {
+        if page != Some(r.page) {
+            if page.is_some() {
+                s.push_str("</section>\n");
+            }
+            let _ = writeln!(s, "<section>\n<h3>Page {}</h3>", r.page);
+            page = Some(r.page);
+        }
+        let class = if r.flags.is_empty() { "seg" } else { "seg flagged" };
+        let _ = writeln!(s, "<p class=\"{class}\">{}</p>", escape_html(&r.translated));
+    }
+    if page.is_some() {
+        s.push_str("</section>\n");
+    }
+    s.push_str("</div>\n");
 }
 
 fn row(s: &mut String, meta: &Meta, r: &Row) {
@@ -187,5 +233,20 @@ mod tests {
         let out = html(&meta(true), &[]);
         assert!(out.contains("0 segments, 0 with notes to check."));
         assert!(out.ends_with("</html>\n"));
+    }
+
+    #[test]
+    fn the_translation_is_also_laid_out_alone_page_by_page_for_printing() {
+        let mut first = row(vec![]);
+        first.page = 1;
+        let mut second = row(vec![]);
+        second.translated = "දෙවන".into();
+        let page = html(&meta(true), &[first, second]);
+        assert!(page.contains("<h3>Page 1</h3>") && page.contains("<h3>Page 2</h3>"));
+        assert!(page.contains("@media print") && page.contains(".review"));
+        assert!(page.contains("<p class=\"seg\">දෙවන</p>"));
+        // The review table is inside the part that printing hides.
+        let table = page.find("<table>").unwrap();
+        assert!(page[..table].contains("<section class=\"review\">"));
     }
 }
