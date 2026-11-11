@@ -399,6 +399,35 @@ fn translate_pages(
 /// leaves it: the reply text and the URL (which holds a Google key) are not kept in errors.
 #[cfg(target_arch = "wasm32")]
 async fn browser_fetch(p: pdfcraft_translate::replay::Pending) -> Result<String, pdfcraft_translate::TranslateError> {
+    use pdfcraft_translate::TranslateError::{Http, Rejected};
+    // A busy service (503) or a rate limit (429) often clears within seconds: wait and ask again.
+    let mut result = fetch_once(&p).await;
+    for wait_ms in [3_000, 8_000] {
+        if !matches!(result, Err(Http(503 | 429) | Rejected { status: 503 | 429, .. })) {
+            break;
+        }
+        sleep_ms(wait_ms).await;
+        result = fetch_once(&p).await;
+    }
+    result
+}
+
+/// Wait `ms` milliseconds without blocking the page.
+#[cfg(target_arch = "wasm32")]
+async fn sleep_ms(ms: i32) {
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        if let Some(window) = web_sys::window() {
+            // Only fails for a bad callback; then there is simply no wait.
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
+        } else {
+            let _ = resolve.call0(&wasm_bindgen::JsValue::NULL);
+        }
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn fetch_once(p: &pdfcraft_translate::replay::Pending) -> Result<String, pdfcraft_translate::TranslateError> {
     use pdfcraft_translate::TranslateError::Network;
     use wasm_bindgen::JsCast;
     let window = web_sys::window().ok_or(Network)?;
